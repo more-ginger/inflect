@@ -176,28 +176,41 @@
 
 <body>
     <div id="vis"> </div>
-    <script type="text/javascript">
+  <script type="text/javascript">
         // URL is of the form: http://localhost:8000/vis/index.html
         // define which vega-lite spec file to use by adding #filename as first item of the hash to the URL,
         // e.g. http://localhost:8000/vis/index.html#barchart
         // the code searches for the filename.json file in the vis folder
-        // if no vis is defined, barchart is default
+        // if no vis is defined, show white page and wait for hash change
         
-        var chartPath = "";
-        if(document.URL.split("#")[1]) {
-            var hash_array = document.URL.split("#")[1].split("&");
-            var chartPath = hash_array[0];
-        }
-        if (chartPath=="") {
-            console.warn("You forgot to define which visualization to use!")
-            chartPath = "barchart"; //default
-            window.location.hash = "#barchart";
-        }
-        
+        var currentChartPath = null;
+        var inflectionInstance = null;
 
-        fetch(chartPath + '.json') 
-            .then(response => {return response.json()})
-            .then(function(data) {
+        function getChartPathFromHash() {
+            var hash = window.location.hash.substring(1);
+            if (!hash || hash === "") return null;
+            var hash_array = hash.split("&");
+            return hash_array[0] || null;
+        }
+
+        function loadChart(chartPath) {
+            if (!chartPath) {
+                // No chart specified - show white page
+                document.getElementById("vis").innerHTML = "";
+                document.querySelector(".inflect_ui")?.remove();
+                document.querySelector(".infl-tooltip")?.remove();
+                currentChartPath = null;
+                return;
+            }
+
+            fetch(chartPath + '.json') 
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Chart spec not found: ' + chartPath);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
                     var spec = data;
                     
                     // find out if axis are quantitative or not, look at definition in spec
@@ -233,15 +246,44 @@
                         var x_quant = false;
                     }
 
+                    // Clear any existing UI before embedding new chart
+                    document.querySelector(".inflect_ui")?.remove();
+                    document.querySelector(".infl-tooltip")?.remove();
+
                     var result = vegaEmbed("#vis", spec, {mode: "vega-lite"}).then(
                         function() {
-                            var vis;
-                            vis = new Inflection();	
-                            vis.init(chartPath, x_quant, y_quant, dragable, piechart); //initialize inflection from inflect.js
+                            currentChartPath = chartPath;
+                            inflectionInstance = new Inflection();	
+                            inflectionInstance.init(chartPath, x_quant, y_quant, dragable, piechart);
                         }
                     ).catch(console.error);
-                }
-            )   
+                })
+                .catch(function(error) {
+                    console.error('Error loading chart:', error, chartPath);
+                    // Show white page on error
+                    document.getElementById("vis").innerHTML = "";
+                    currentChartPath = null;
+                });
+        }
+
+        // Initial load - only if hash is present
+        var initialChartPath = getChartPathFromHash();
+        if (initialChartPath) {
+            loadChart(initialChartPath);
+        }
+        // If no hash, page stays white (default body background)
+
+        // Listen for hash changes
+        window.addEventListener("hashchange", function() {
+            var newChartPath = getChartPathFromHash();
+            
+            // Only reload if the base chart path changed
+            if (newChartPath !== currentChartPath) {
+                loadChart(newChartPath);
+            }
+            // If same chart path but different parameters, the Inflection class
+            // handles that internally via its own hashchange listener
+        });
         
     </script>
 
@@ -264,7 +306,7 @@
             this.xAxQuant = false; //if x axis is quantitative or qualitative
             this.yAxQuant = false; //if y axis is quantitative or qualitative
 
-            this.default_infl_col = "#FF00D3" //bright pink
+            this.default_infl_col = "#FF00D3"
             this.baseyax = [0, 0]; //min and max values displayed of y axis
             this.basexax = [0, 0]; //min and max values displayed of x axis
 
